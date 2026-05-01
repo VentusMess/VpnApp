@@ -1,0 +1,74 @@
+<?xml version="1.0" encoding="utf-8"?>
+<androidx.constraintlayout.widget.ConstraintLayout
+    xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:background="#0A0A0A">
+
+    <TextView
+        android:id="@+id/tvAppName"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:text="Wave VPN"
+        android:textColor="#FFFFFF"
+        android:textSize="24sp"
+        android:fontFamily="sans-serif-light"
+        app:layout_constraintTop_toTopOf="parent"
+        app:layout_constraintStart_toStartOf="parent"
+        app:layout_constraintEnd_toEndOf="parent"
+        android:layout_marginTop="80dp"/>
+
+    <Button
+        android:id="@+id/btnConnect"
+        android:layout_width="160dp"
+        android:layout_height="160dp"
+        android:background="@drawable/btn_off"
+        android:text=""
+        app:layout_constraintTop_toTopOf="parent"
+        app:layout_constraintBottom_toBottomOf="parent"
+        app:layout_constraintStart_toStartOf="parent"
+        app:layout_constraintEnd_toEndOf="parent"/>
+
+    <TextView
+        android:id="@+id/tvStatus"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:text="отключён"
+        android:textColor="#444444"
+        android:textSize="12sp"
+        app:layout_constraintTop_toBottomOf="@id/btnConnect"
+        app:layout_constraintStart_toStartOf="parent"
+        app:layout_constraintEnd_toEndOf="parent"
+        android:layout_marginTop="20dp"/>
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="horizontal"
+        android:gravity="center"
+        app:layout_constraintBottom_toBottomOf="parent"
+        android:layout_marginBottom="60dp">
+
+        <LinearLayout android:layout_width="wrap_content" android:layout_height="wrap_content" android:orientation="vertical" android:gravity="center">
+            <TextView android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="СЕРВЕР" android:textColor="#333333" android:textSize="9sp"/>
+            <TextView android:id="@+id/tvServer" android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="—" android:textColor="#666666" android:textSize="13sp" android:layout_marginTop="4dp"/>
+        </LinearLayout>
+
+        <View android:layout_width="1dp" android:layout_height="30dp" android:background="#1A1A1A" android:layout_marginHorizontal="32dp"/>
+
+        <LinearLayout android:layout_width="wrap_content" android:layout_height="wrap_content" android:orientation="vertical" android:gravity="center">
+            <TextView android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="ПИНГ" android:textColor="#333333" android:textSize="9sp"/>
+            <TextView android:id="@+id/tvPing" android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="—" android:textColor="#666666" android:textSize="13sp" android:layout_marginTop="4dp"/>
+        </LinearLayout>
+
+        <View android:layout_width="1dp" android:layout_height="30dp" android:background="#1A1A1A" android:layout_marginHorizontal="32dp"/>
+
+        <LinearLayout android:layout_width="wrap_content" android:layout_height="wrap_content" android:orientation="vertical" android:gravity="center">
+            <TextView android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="ТРАФИК" android:textColor="#333333" android:textSize="9sp"/>
+            <TextView android:id="@+id/tvTraffic" android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="—" android:textColor="#666666" android:textSize="13sp" android:layout_marginTop="4dp"/>
+        </LinearLayout>
+
+    </LinearLayout>
+
+</androidx.constraintlayout.widget.ConstraintLayout>
