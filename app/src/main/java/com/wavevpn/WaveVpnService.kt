@@ -6,26 +6,21 @@ import android.net.VpnService
 import android.os.Build
 import android.os.ParcelFileDescriptor
 import androidx.core.app.NotificationCompat
-import org.json.JSONObject
-import java.io.File
 
 class WaveVpnService : VpnService() {
     private var vpnInterface: ParcelFileDescriptor? = null
     private var xrayProcess: Process? = null
 
-    companion object {
-        const val ACTION_CONNECT = "CONNECT"
-        const val ACTION_DISCONNECT = "DISCONNECT"
-        var currentKey: String? = null
-    }
-
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
-        if (intent?.action == ACTION_CONNECT) {
-            startForeground(1, buildNotification())
-            val key = intent.getStringExtra("key") ?: currentKey
-            if (key != null) {
-                startXray(key)
+        if (intent?.action == "CONNECT") {
+            val notification = buildNotification()
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
+                startForeground(1, notification, ServiceInfo.FOREGROUND_SERVICE_TYPE_SPECIAL_USE)
+            } else {
+                startForeground(1, notification)
             }
+            val key = intent.getStringExtra("key")
+            if (key != null) startXray(key)
             startVpnTunnel()
         } else {
             stopEverything()
@@ -35,8 +30,7 @@ class WaveVpnService : VpnService() {
 
     private fun startXray(vlessKey: String) {
         try {
-            // Копируем xray бинарник из assets
-            val xrayFile = File(filesDir, "xray")
+            val xrayFile = java.io.File(filesDir, "xray")
             if (!xrayFile.exists()) {
                 assets.open("xray").use { input ->
                     xrayFile.outputStream().use { output ->
@@ -45,25 +39,19 @@ class WaveVpnService : VpnService() {
                 }
                 xrayFile.setExecutable(true)
             }
-
-            // Генерируем конфиг из VLESS ключа
             val config = generateXrayConfig(vlessKey)
-            val configFile = File(filesDir, "config.json")
+            val configFile = java.io.File(filesDir, "config.json")
             configFile.writeText(config)
-
-            // Запускаем Xray
             xrayProcess = ProcessBuilder(xrayFile.absolutePath, "run", "-c", configFile.absolutePath)
                 .directory(filesDir)
                 .redirectErrorStream(true)
                 .start()
-
         } catch (e: Exception) {
             e.printStackTrace()
         }
     }
 
     private fun generateXrayConfig(vlessUrl: String): String {
-        // Парсим vless://uuid@host:port?params#name
         val withoutScheme = vlessUrl.removePrefix("vless://")
         val atIdx = withoutScheme.indexOf('@')
         val uuid = withoutScheme.substring(0, atIdx)
@@ -73,17 +61,13 @@ class WaveVpnService : VpnService() {
         val colonIdx = hostPort.lastIndexOf(':')
         val host = hostPort.substring(0, colonIdx)
         val port = hostPort.substring(colonIdx + 1).split("#")[0].toIntOrNull() ?: 443
-
-        // Парсим параметры
         val params = mutableMapOf<String, String>()
         if (questionIdx != -1) {
-            val paramStr = rest.substring(questionIdx + 1).split("#")[0]
-            paramStr.split("&").forEach { param ->
+            rest.substring(questionIdx + 1).split("#")[0].split("&").forEach { param ->
                 val kv = param.split("=")
                 if (kv.size == 2) params[kv[0]] = kv[1]
             }
         }
-
         val security = params["security"] ?: "none"
         val sni = params["sni"] ?: host
         val fp = params["fp"] ?: "chrome"
@@ -91,41 +75,34 @@ class WaveVpnService : VpnService() {
         val sid = params["sid"] ?: ""
         val type = params["type"] ?: "tcp"
         val flow = params["flow"] ?: ""
-
-        val streamSettings = if (security == "reality") {
-            """
-            "streamSettings": {
-                "network": "$type",
-                "security": "reality",
-                "realitySettings": {
-                    "serverName": "$sni",
-                    "fingerprint": "$fp",
-                    "publicKey": "$pbk",
-                    "shortId": "$sid"
+        val streamSettings = when (security) {
+            "reality" -> """
+                "streamSettings": {
+                    "network": "$type",
+                    "security": "reality",
+                    "realitySettings": {
+                        "serverName": "$sni",
+                        "fingerprint": "$fp",
+                        "publicKey": "$pbk",
+                        "shortId": "$sid"
+                    }
                 }
-            }
             """.trimIndent()
-        } else if (security == "tls") {
-            """
-            "streamSettings": {
-                "network": "$type",
-                "security": "tls",
-                "tlsSettings": {
-                    "serverName": "$sni",
-                    "fingerprint": "$fp"
+            "tls" -> """
+                "streamSettings": {
+                    "network": "$type",
+                    "security": "tls",
+                    "tlsSettings": {
+                        "serverName": "$sni",
+                        "fingerprint": "$fp"
+                    }
                 }
-            }
             """.trimIndent()
-        } else {
-            """
-            "streamSettings": {
-                "network": "$type"
-            }
+            else -> """
+                "streamSettings": {"network": "$type"}
             """.trimIndent()
         }
-
         val flowSetting = if (flow.isNotEmpty()) "\"flow\": \"$flow\"," else ""
-
         return """
         {
             "log": {"loglevel": "warning"},
@@ -136,12 +113,6 @@ class WaveVpnService : VpnService() {
                     "listen": "127.0.0.1",
                     "protocol": "socks",
                     "settings": {"udp": true}
-                },
-                {
-                    "tag": "http",
-                    "port": 10809,
-                    "listen": "127.0.0.1",
-                    "protocol": "http"
                 }
             ],
             "outbounds": [
@@ -161,19 +132,10 @@ class WaveVpnService : VpnService() {
                     },
                     $streamSettings
                 },
-                {
-                    "tag": "direct",
-                    "protocol": "freedom"
-                }
+                {"tag": "direct", "protocol": "freedom"}
             ],
             "routing": {
-                "rules": [
-                    {
-                        "type": "field",
-                        "outboundTag": "direct",
-                        "ip": ["geoip:private"]
-                    }
-                ]
+                "rules": [{"type": "field", "outboundTag": "direct", "ip": ["geoip:private"]}]
             }
         }
         """.trimIndent()
@@ -219,7 +181,5 @@ class WaveVpnService : VpnService() {
             .build()
     }
 
-    override fun onDestroy() {
-        stopEverything()
-    }
+    override fun onDestroy() { stopEverything() }
 }
