@@ -37,15 +37,17 @@ class MainActivity : AppCompatActivity() {
         startService(Intent(this, WaveVpnService::class.java).apply { action = "CONNECT" })
         isConnected = true
         binding.btnConnect.setBackgroundResource(R.drawable.btn_on)
+        binding.ivWave.setColorFilter(0xFF000000.toInt())
         binding.tvStatus.text = "подключён"
         binding.tvStatus.setTextColor(0xFFFFFFFF.toInt())
         binding.tvServer.text = "DE"
+        binding.tvServer.setTextColor(0xFFCCCCCC.toInt())
         binding.tvTraffic.text = "↑↓"
-        var ping = 24
+        binding.tvTraffic.setTextColor(0xFFCCCCCC.toInt())
         pingRunnable = object : Runnable {
             override fun run() {
-                ping = (18..35).random()
-                binding.tvPing.text = "${ping}ms"
+                binding.tvPing.text = "${(18..35).random()}ms"
+                binding.tvPing.setTextColor(0xFFCCCCCC.toInt())
                 handler.postDelayed(this, 3000)
             }
         }
@@ -56,11 +58,15 @@ class MainActivity : AppCompatActivity() {
         startService(Intent(this, WaveVpnService::class.java).apply { action = "DISCONNECT" })
         isConnected = false
         binding.btnConnect.setBackgroundResource(R.drawable.btn_off)
+        binding.ivWave.setColorFilter(0xFFFFFFFF.toInt())
         binding.tvStatus.text = "отключён"
         binding.tvStatus.setTextColor(0xFF444444.toInt())
         binding.tvServer.text = "—"
+        binding.tvServer.setTextColor(0xFF666666.toInt())
         binding.tvPing.text = "—"
+        binding.tvPing.setTextColor(0xFF666666.toInt())
         binding.tvTraffic.text = "—"
+        binding.tvTraffic.setTextColor(0xFF666666.toInt())
         pingRunnable?.let { handler.removeCallbacks(it) }
     }
 
