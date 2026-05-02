@@ -19,7 +19,7 @@ jobs:
         unzip -q gradle-8.2-bin.zip -d $HOME
         echo "$HOME/gradle-8.2/bin" >> $GITHUB_PATH
     - name: Build APK
-      run: gradle assembleDebug
+      run: gradle assembleDebug --stacktrace
     - uses: actions/upload-artifact@v4
       with:
         name: WaveVPN
