@@ -14,17 +14,14 @@ jobs:
         distribution: 'temurin'
     - uses: android-actions/setup-android@v3
 
-    - name: Download WireGuard tools for Android
+    - name: Download Xray
       run: |
         mkdir -p app/src/main/assets
-        # Скачиваем wireguard-go для Android arm64
-        wget -q "https://github.com/WireGuard/wireguard-android/releases/latest/download/wireguard-arm64-v8a.apk" -O wg.apk 2>/dev/null || true
-        # Берём бинарник из APK
-        if [ -f wg.apk ]; then
-          unzip -q wg.apk -d wg_tmp 2>/dev/null || true
-          find wg_tmp -name "libwg-go.so" -o -name "libwg.so" | head -1 | xargs -I{} cp {} app/src/main/assets/wireguard 2>/dev/null || true
-        fi
-        ls -la app/src/main/assets/ || true
+        wget -q "https://github.com/XTLS/Xray-core/releases/download/v25.4.30/Xray-android-arm64-v8a.zip" -O xray.zip
+        unzip -q xray.zip -d xray_tmp
+        cp xray_tmp/xray app/src/main/assets/xray
+        chmod +x app/src/main/assets/xray
+        ls -la app/src/main/assets/
 
     - name: Install Gradle 8.2
       run: |
