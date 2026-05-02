@@ -1,6 +1,7 @@
 package com.wavevpn
 
 import android.app.*
+import android.app.ServiceInfo
 import android.content.Intent
 import android.net.VpnService
 import android.os.Build
