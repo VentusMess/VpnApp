@@ -12,7 +12,6 @@ import java.io.FileOutputStream
 class WaveVpnService : VpnService() {
     private var vpnInterface: ParcelFileDescriptor? = null
     private var xrayProcess: Process? = null
-    private var tun2socksProcess: Process? = null
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         if (intent?.action == "CONNECT") {
@@ -23,9 +22,7 @@ class WaveVpnService : VpnService() {
                 startForeground(1, notification)
             }
             val key = intent.getStringExtra("key")
-            Thread {
-                setupAndStart(key)
-            }.start()
+            Thread { setupAndStart(key) }.start()
         } else {
             stopEverything()
         }
@@ -34,22 +31,10 @@ class WaveVpnService : VpnService() {
 
     private fun setupAndStart(key: String?) {
         try {
-            // 1. Копируем бинарники
+            // 1. Копируем Xray
             copyAsset("xray", "xray")
-            copyAsset("tun2socks", "tun2socks")
 
-            // 2. Запускаем Xray с ключом
-            if (key != null) {
-                val config = generateXrayConfig(key)
-                File(filesDir, "config.json").writeText(config)
-                xrayProcess = ProcessBuilder(
-                    File(filesDir, "xray").absolutePath,
-                    "run", "-c", File(filesDir, "config.json").absolutePath
-                ).directory(filesDir).redirectErrorStream(true).start()
-                Thread.sleep(1000) // ждём старта Xray
-            }
-
-            // 3. Поднимаем VPN туннель
+            // 2. Поднимаем VPN туннель
             vpnInterface = Builder()
                 .addAddress("10.0.0.2", 24)
                 .addDnsServer("1.1.1.1")
@@ -57,22 +42,136 @@ class WaveVpnService : VpnService() {
                 .addRoute("0.0.0.0", 0)
                 .setSession("Wave VPN")
                 .setMtu(1500)
-                .establish()
+                .establish() ?: return
 
-            // 4. Запускаем tun2socks — он перенаправляет трафик из туннеля в Xray
-            val tun2socksFile = File(filesDir, "tun2socks")
-            if (tun2socksFile.exists()) {
-                tun2socksProcess = ProcessBuilder(
-                    tun2socksFile.absolutePath,
-                    "-device", "fd://${vpnInterface!!.fd}",
-                    "-proxy", "socks5://127.0.0.1:10808",
-                    "-loglevel", "warning"
+            // 3. Запускаем Xray с VLESS конфигом
+            if (key != null) {
+                val config = generateXrayConfig(key)
+                File(filesDir, "config.json").writeText(config)
+                val xrayFile = File(filesDir, "xray")
+                xrayProcess = ProcessBuilder(
+                    xrayFile.absolutePath, "run", "-c",
+                    File(filesDir, "config.json").absolutePath
                 ).directory(filesDir).redirectErrorStream(true).start()
+                Thread.sleep(1500)
             }
+
+            // 4. Запускаем hev-socks5-tunnel через JNI
+            // передаём fd туннеля и порт Xray SOCKS
+            val fd = vpnInterface!!.fd
+            val config = generateHevConfig(fd)
+            File(filesDir, "hev.yml").writeText(config)
+            startHevTunnel(File(filesDir, "hev.yml").absolutePath, fd)
 
         } catch (e: Exception) {
             e.printStackTrace()
             stopEverything()
+        }
+    }
+
+    private fun startHevTunnel(configPath: String, tunFd: Int) {
+        try {
+            HevSocks5Tunnel.start(configPath, tunFd)
+        } catch (e: Exception) {
+            e.printStackTrace()
+        }
+    }
+
+    private fun generateHevConfig(tunFd: Int): String {
+        return """
+tunnel:
+  fd: $tunFd
+  mtu: 1500
+  ipv4: 10.0.0.2
+socks5:
+  port: 10808
+  address: 127.0.0.1
+  udp: udp
+misc:
+  log-level: warn
+        """.trimIndent()
+    }
+
+    private fun generateXrayConfig(vlessUrl: String): String {
+        return try {
+            val withoutScheme = vlessUrl.removePrefix("vless://")
+            val atIdx = withoutScheme.indexOf('@')
+            val uuid = withoutScheme.substring(0, atIdx)
+            val rest = withoutScheme.substring(atIdx + 1)
+            val questionIdx = rest.indexOf('?')
+            val hostPort = if (questionIdx != -1) rest.substring(0, questionIdx) else rest.split("#")[0]
+            val colonIdx = hostPort.lastIndexOf(':')
+            val host = hostPort.substring(0, colonIdx)
+            val port = hostPort.substring(colonIdx + 1).split("#")[0].toIntOrNull() ?: 443
+            val params = mutableMapOf<String, String>()
+            if (questionIdx != -1) {
+                rest.substring(questionIdx + 1).split("#")[0].split("&").forEach { param ->
+                    val kv = param.split("=")
+                    if (kv.size == 2) params[kv[0]] = java.net.URLDecoder.decode(kv[1], "UTF-8")
+                }
+            }
+            val security = params["security"] ?: "none"
+            val sni = params["sni"] ?: host
+            val fp = params["fp"] ?: "chrome"
+            val pbk = params["pbk"] ?: ""
+            val sid = params["sid"] ?: ""
+            val type = params["type"] ?: "tcp"
+            val flow = params["flow"] ?: ""
+            val streamSettings = when (security) {
+                "reality" -> """
+                    "streamSettings": {
+                        "network": "$type",
+                        "security": "reality",
+                        "realitySettings": {
+                            "serverName": "$sni",
+                            "fingerprint": "$fp",
+                            "publicKey": "$pbk",
+                            "shortId": "$sid"
+                        }
+                    }
+                """.trimIndent()
+                "tls" -> """
+                    "streamSettings": {
+                        "network": "$type",
+                        "security": "tls",
+                        "tlsSettings": {"serverName": "$sni", "fingerprint": "$fp"}
+                    }
+                """.trimIndent()
+                else -> """"streamSettings": {"network": "$type"}"""
+            }
+            val flowSetting = if (flow.isNotEmpty()) "\"flow\": \"$flow\"," else ""
+            """
+            {
+                "log": {"loglevel": "warning"},
+                "inbounds": [{
+                    "tag": "socks",
+                    "port": 10808,
+                    "listen": "127.0.0.1",
+                    "protocol": "socks",
+                    "settings": {"udp": true}
+                }],
+                "outbounds": [
+                    {
+                        "tag": "proxy",
+                        "protocol": "vless",
+                        "settings": {
+                            "vnext": [{
+                                "address": "$host",
+                                "port": $port,
+                                "users": [{"id": "$uuid", $flowSetting "encryption": "none"}]
+                            }]
+                        },
+                        $streamSettings
+                    },
+                    {"tag": "direct", "protocol": "freedom"}
+                ],
+                "routing": {
+                    "rules": [{"type": "field", "outboundTag": "direct", "ip": ["geoip:private"]}]
+                }
+            }
+            """.trimIndent()
+        } catch (e: Exception) {
+            """{"log":{"loglevel":"warning"},"inbounds":[{"port":10808,"listen":"127.0.0.1","protocol":"socks"}],"outbounds":[{"protocol":"freedom"}]}"""
         }
     }
 
@@ -81,102 +180,15 @@ class WaveVpnService : VpnService() {
         if (!file.exists()) {
             try {
                 assets.open(assetName).use { input ->
-                    FileOutputStream(file).use { output ->
-                        input.copyTo(output)
-                    }
+                    FileOutputStream(file).use { output -> input.copyTo(output) }
                 }
                 file.setExecutable(true)
-            } catch (e: Exception) {
-                // файл не найден в assets — пропускаем
-            }
+            } catch (e: Exception) { e.printStackTrace() }
         }
-    }
-
-    private fun generateXrayConfig(vlessUrl: String): String {
-        val withoutScheme = vlessUrl.removePrefix("vless://")
-        val atIdx = withoutScheme.indexOf('@')
-        val uuid = withoutScheme.substring(0, atIdx)
-        val rest = withoutScheme.substring(atIdx + 1)
-        val questionIdx = rest.indexOf('?')
-        val hostPort = if (questionIdx != -1) rest.substring(0, questionIdx) else rest.split("#")[0]
-        val colonIdx = hostPort.lastIndexOf(':')
-        val host = hostPort.substring(0, colonIdx)
-        val port = hostPort.substring(colonIdx + 1).split("#")[0].toIntOrNull() ?: 443
-        val params = mutableMapOf<String, String>()
-        if (questionIdx != -1) {
-            rest.substring(questionIdx + 1).split("#")[0].split("&").forEach { param ->
-                val kv = param.split("=")
-                if (kv.size == 2) params[kv[0]] = java.net.URLDecoder.decode(kv[1], "UTF-8")
-            }
-        }
-        val security = params["security"] ?: "none"
-        val sni = params["sni"] ?: host
-        val fp = params["fp"] ?: "chrome"
-        val pbk = params["pbk"] ?: ""
-        val sid = params["sid"] ?: ""
-        val type = params["type"] ?: "tcp"
-        val flow = params["flow"] ?: ""
-        val streamSettings = when (security) {
-            "reality" -> """
-                "streamSettings": {
-                    "network": "$type",
-                    "security": "reality",
-                    "realitySettings": {
-                        "serverName": "$sni",
-                        "fingerprint": "$fp",
-                        "publicKey": "$pbk",
-                        "shortId": "$sid"
-                    }
-                }
-            """.trimIndent()
-            "tls" -> """
-                "streamSettings": {
-                    "network": "$type",
-                    "security": "tls",
-                    "tlsSettings": {
-                        "serverName": "$sni",
-                        "fingerprint": "$fp"
-                    }
-                }
-            """.trimIndent()
-            else -> """"streamSettings": {"network": "$type"}"""
-        }
-        val flowSetting = if (flow.isNotEmpty()) "\"flow\": \"$flow\"," else ""
-        return """
-        {
-            "log": {"loglevel": "warning"},
-            "inbounds": [{
-                "tag": "socks",
-                "port": 10808,
-                "listen": "127.0.0.1",
-                "protocol": "socks",
-                "settings": {"udp": true}
-            }],
-            "outbounds": [
-                {
-                    "tag": "proxy",
-                    "protocol": "vless",
-                    "settings": {
-                        "vnext": [{
-                            "address": "$host",
-                            "port": $port,
-                            "users": [{"id": "$uuid", $flowSetting "encryption": "none"}]
-                        }]
-                    },
-                    $streamSettings
-                },
-                {"tag": "direct", "protocol": "freedom"}
-            ],
-            "routing": {
-                "rules": [{"type": "field", "outboundTag": "direct", "ip": ["geoip:private"]}]
-            }
-        }
-        """.trimIndent()
     }
 
     private fun stopEverything() {
-        tun2socksProcess?.destroy()
-        tun2socksProcess = null
+        try { HevSocks5Tunnel.stop() } catch (e: Exception) {}
         xrayProcess?.destroy()
         xrayProcess = null
         vpnInterface?.close()
