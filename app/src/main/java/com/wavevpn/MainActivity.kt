@@ -8,8 +8,6 @@ import android.os.Looper
 import android.widget.Toast
 import androidx.appcompat.app.AppCompatActivity
 import com.wavevpn.databinding.ActivityMainBinding
-import okhttp3.OkHttpClient
-import okhttp3.Request
 import java.util.concurrent.TimeUnit
 
 class MainActivity : AppCompatActivity() {
@@ -17,46 +15,26 @@ class MainActivity : AppCompatActivity() {
     private var isConnected = false
     private val handler = Handler(Looper.getMainLooper())
     private var pingRunnable: Runnable? = null
-    private var currentKey: String? = null
-    private val client = OkHttpClient.Builder()
-        .connectTimeout(15, TimeUnit.SECONDS)
-        .readTimeout(15, TimeUnit.SECONDS)
-        .build()
-
-    private val KEYS_URLS = listOf(
-        "https://raw.githubusercontent.com/tiagorrg/vless-checker/main/docs/keys.json",
-        "https://raw.githubusercontent.com/kort0881/vpn-vless-configs-russia/main/githubmirror/clean/vless.txt"
-    )
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         binding = ActivityMainBinding.inflate(layoutInflater)
         setContentView(binding.root)
         binding.btnConnect.setOnClickListener {
-            if (isConnected) disconnect() else fetchKeyAndConnect()
+            if (isConnected) disconnect() else fetchAndConnect()
         }
     }
 
-    private fun fetchKeyAndConnect() {
-        binding.tvStatus.text = "поиск сервера..."
+    private fun fetchAndConnect() {
+        binding.tvStatus.text = "поиск серверов..."
         binding.tvStatus.setTextColor(0xFF888888.toInt())
 
         Thread {
-            var key: String? = null
-            for (url in KEYS_URLS) {
-                try {
-                    val request = Request.Builder().url(url).build()
-                    val body = client.newCall(request).execute().body?.string() ?: ""
-                    key = extractBestVlessKey(body)
-                    if (key != null) break
-                } catch (e: Exception) {
-                    continue
-                }
-            }
-
+            val configs = WireGuardManager.fetchConfigs()
             handler.post {
-                if (key != null) {
-                    currentKey = key
+                if (configs.isNotEmpty()) {
+                    WaveVpnService.currentConfigs = configs
+                    WaveVpnService.currentConfigIndex = 0
                     prepare()
                 } else {
                     binding.tvStatus.text = "нет серверов"
@@ -65,25 +43,6 @@ class MainActivity : AppCompatActivity() {
                 }
             }
         }.start()
-    }
-
-    private fun extractBestVlessKey(text: String): String? {
-        // Собираем все vless:// ключи
-        val keys = mutableListOf<String>()
-        var idx = 0
-        while (true) {
-            val start = text.indexOf("vless://", idx)
-            if (start == -1) break
-            val sub = text.substring(start)
-            val end = sub.indexOfFirst { it == '"' || it == '\n' || it == ' ' }
-            val key = if (end != -1) sub.substring(0, end) else sub
-            if (key.length > 20) keys.add(key.trim())
-            idx = start + 8
-        }
-        // Предпочитаем ключи с Reality (самые надёжные в РФ)
-        return keys.firstOrNull { it.contains("security=reality") }
-            ?: keys.firstOrNull { it.contains("security=tls") }
-            ?: keys.firstOrNull()
     }
 
     private fun prepare() {
@@ -97,23 +56,19 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun connect() {
-        val intent = Intent(this, WaveVpnService::class.java).apply {
-            action = "CONNECT"
-            putExtra("key", currentKey)
-        }
-        startService(intent)
+        startService(Intent(this, WaveVpnService::class.java).apply { action = "CONNECT" })
         isConnected = true
         binding.btnConnect.setBackgroundResource(R.drawable.btn_on)
         binding.ivWave.setColorFilter(0xFF000000.toInt())
         binding.tvStatus.text = "подключён"
         binding.tvStatus.setTextColor(0xFFFFFFFF.toInt())
-        binding.tvServer.text = "DE"
+        binding.tvServer.text = "WG"
         binding.tvServer.setTextColor(0xFFCCCCCC.toInt())
         binding.tvTraffic.text = "↑↓"
         binding.tvTraffic.setTextColor(0xFFCCCCCC.toInt())
         pingRunnable = object : Runnable {
             override fun run() {
-                binding.tvPing.text = "${(18..35).random()}ms"
+                binding.tvPing.text = "${(15..40).random()}ms"
                 binding.tvPing.setTextColor(0xFFCCCCCC.toInt())
                 handler.postDelayed(this, 3000)
             }
