@@ -13,12 +13,11 @@ jobs:
         java-version: '17'
         distribution: 'temurin'
     - uses: android-actions/setup-android@v2
-    - name: Install Gradle
+    - name: Install Gradle 8.2
       run: |
         wget -q https://services.gradle.org/distributions/gradle-8.2-bin.zip
-        unzip -q gradle-8.2-bin.zip
-        export PATH=$PATH:$PWD/gradle-8.2/bin
-        echo "PATH=$PATH:$PWD/gradle-8.2/bin" >> $GITHUB_ENV
+        unzip -q gradle-8.2-bin.zip -d $HOME
+        echo "$HOME/gradle-8.2/bin" >> $GITHUB_PATH
     - name: Build APK
       run: gradle assembleDebug
     - uses: actions/upload-artifact@v4
