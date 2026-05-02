@@ -17,12 +17,12 @@ class MainActivity : AppCompatActivity() {
     private var isConnected = false
     private val handler = Handler(Looper.getMainLooper())
     private var pingRunnable: Runnable? = null
+    private var currentKey: String? = null
     private val client = OkHttpClient.Builder()
-        .connectTimeout(10, TimeUnit.SECONDS)
-        .readTimeout(10, TimeUnit.SECONDS)
+        .connectTimeout(15, TimeUnit.SECONDS)
+        .readTimeout(15, TimeUnit.SECONDS)
         .build()
 
-    // URL откуда берём свежие VLESS ключи
     private val KEYS_URL = "https://raw.githubusercontent.com/tiagorrg/vless-checker/main/docs/keys.json"
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -41,43 +41,33 @@ class MainActivity : AppCompatActivity() {
         Thread {
             try {
                 val request = Request.Builder().url(KEYS_URL).build()
-                val response = client.newCall(request).execute()
-                val body = response.body?.string() ?: ""
-
-                // Парсим первый рабочий ключ из JSON
-                val key = parseFirstKey(body)
+                val body = client.newCall(request).execute().body?.string() ?: ""
+                val key = extractVlessKey(body)
 
                 handler.post {
                     if (key != null) {
-                        // Сохраняем ключ и подключаемся
-                        getSharedPreferences("vpn", MODE_PRIVATE)
-                            .edit().putString("key", key).apply()
+                        currentKey = key
                         prepare()
                     } else {
                         binding.tvStatus.text = "нет серверов"
-                        Toast.makeText(this, "Не удалось найти сервер", Toast.LENGTH_SHORT).show()
+                        Toast.makeText(this, "Серверы недоступны", Toast.LENGTH_SHORT).show()
                     }
                 }
             } catch (e: Exception) {
                 handler.post {
                     binding.tvStatus.text = "ошибка сети"
-                    Toast.makeText(this, "Ошибка: ${e.message}", Toast.LENGTH_SHORT).show()
+                    Toast.makeText(this, "Ошибка подключения", Toast.LENGTH_SHORT).show()
                 }
             }
         }.start()
     }
 
-    private fun parseFirstKey(json: String): String? {
-        return try {
-            // Ищем первый vless:// ключ в JSON
-            val idx = json.indexOf("vless://")
-            if (idx == -1) return null
-            val end = json.indexOfFirst { it == '"' || it == '\n' || it == ',' }
-            val key = json.substring(idx).split("\"")[0].trim()
-            if (key.startsWith("vless://")) key else null
-        } catch (e: Exception) {
-            null
-        }
+    private fun extractVlessKey(json: String): String? {
+        val idx = json.indexOf("vless://")
+        if (idx == -1) return null
+        val sub = json.substring(idx)
+        val end = sub.indexOfFirst { it == '"' || it == '\n' }
+        return if (end != -1) sub.substring(0, end) else sub.split(" ")[0]
     }
 
     private fun prepare() {
@@ -91,7 +81,11 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun connect() {
-        startService(Intent(this, WaveVpnService::class.java).apply { action = "CONNECT" })
+        val intent = Intent(this, WaveVpnService::class.java).apply {
+            action = "CONNECT"
+            putExtra("key", currentKey)
+        }
+        startService(intent)
         isConnected = true
         binding.btnConnect.setBackgroundResource(R.drawable.btn_on)
         binding.ivWave.setColorFilter(0xFF000000.toInt())
