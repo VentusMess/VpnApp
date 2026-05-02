@@ -1,12 +1,12 @@
 package com.wavevpn
 
 import android.app.*
-import android.app.ServiceInfo
 import android.content.Intent
 import android.net.VpnService
 import android.os.Build
 import android.os.ParcelFileDescriptor
 import androidx.core.app.NotificationCompat
+import java.io.File
 
 class WaveVpnService : VpnService() {
     private var vpnInterface: ParcelFileDescriptor? = null
@@ -15,8 +15,8 @@ class WaveVpnService : VpnService() {
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         if (intent?.action == "CONNECT") {
             val notification = buildNotification()
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
-                startForeground(1, notification, ServiceInfo.FOREGROUND_SERVICE_TYPE_SPECIAL_USE)
+            if (Build.VERSION.SDK_INT >= 34) {
+                startForeground(1, notification, 1 shl 30)
             } else {
                 startForeground(1, notification)
             }
@@ -31,7 +31,7 @@ class WaveVpnService : VpnService() {
 
     private fun startXray(vlessKey: String) {
         try {
-            val xrayFile = java.io.File(filesDir, "xray")
+            val xrayFile = File(filesDir, "xray")
             if (!xrayFile.exists()) {
                 assets.open("xray").use { input ->
                     xrayFile.outputStream().use { output ->
@@ -41,7 +41,7 @@ class WaveVpnService : VpnService() {
                 xrayFile.setExecutable(true)
             }
             val config = generateXrayConfig(vlessKey)
-            val configFile = java.io.File(filesDir, "config.json")
+            val configFile = File(filesDir, "config.json")
             configFile.writeText(config)
             xrayProcess = ProcessBuilder(xrayFile.absolutePath, "run", "-c", configFile.absolutePath)
                 .directory(filesDir)
