@@ -5,21 +5,78 @@ import android.net.VpnService
 import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
+import android.widget.Toast
 import androidx.appcompat.app.AppCompatActivity
 import com.wavevpn.databinding.ActivityMainBinding
+import okhttp3.OkHttpClient
+import okhttp3.Request
+import java.util.concurrent.TimeUnit
 
 class MainActivity : AppCompatActivity() {
     private lateinit var binding: ActivityMainBinding
     private var isConnected = false
     private val handler = Handler(Looper.getMainLooper())
     private var pingRunnable: Runnable? = null
+    private val client = OkHttpClient.Builder()
+        .connectTimeout(10, TimeUnit.SECONDS)
+        .readTimeout(10, TimeUnit.SECONDS)
+        .build()
+
+    // URL откуда берём свежие VLESS ключи
+    private val KEYS_URL = "https://raw.githubusercontent.com/tiagorrg/vless-checker/main/docs/keys.json"
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         binding = ActivityMainBinding.inflate(layoutInflater)
         setContentView(binding.root)
         binding.btnConnect.setOnClickListener {
-            if (isConnected) disconnect() else prepare()
+            if (isConnected) disconnect() else fetchKeyAndConnect()
+        }
+    }
+
+    private fun fetchKeyAndConnect() {
+        binding.tvStatus.text = "поиск сервера..."
+        binding.tvStatus.setTextColor(0xFF888888.toInt())
+
+        Thread {
+            try {
+                val request = Request.Builder().url(KEYS_URL).build()
+                val response = client.newCall(request).execute()
+                val body = response.body?.string() ?: ""
+
+                // Парсим первый рабочий ключ из JSON
+                val key = parseFirstKey(body)
+
+                handler.post {
+                    if (key != null) {
+                        // Сохраняем ключ и подключаемся
+                        getSharedPreferences("vpn", MODE_PRIVATE)
+                            .edit().putString("key", key).apply()
+                        prepare()
+                    } else {
+                        binding.tvStatus.text = "нет серверов"
+                        Toast.makeText(this, "Не удалось найти сервер", Toast.LENGTH_SHORT).show()
+                    }
+                }
+            } catch (e: Exception) {
+                handler.post {
+                    binding.tvStatus.text = "ошибка сети"
+                    Toast.makeText(this, "Ошибка: ${e.message}", Toast.LENGTH_SHORT).show()
+                }
+            }
+        }.start()
+    }
+
+    private fun parseFirstKey(json: String): String? {
+        return try {
+            // Ищем первый vless:// ключ в JSON
+            val idx = json.indexOf("vless://")
+            if (idx == -1) return null
+            val end = json.indexOfFirst { it == '"' || it == '\n' || it == ',' }
+            val key = json.substring(idx).split("\"")[0].trim()
+            if (key.startsWith("vless://")) key else null
+        } catch (e: Exception) {
+            null
         }
     }
 
