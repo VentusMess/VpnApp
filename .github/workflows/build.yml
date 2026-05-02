@@ -14,15 +14,22 @@ jobs:
         distribution: 'temurin'
     - uses: android-actions/setup-android@v3
 
-    - name: Download Xray for Android
+    - name: Download Xray and tun2socks
       run: |
         mkdir -p app/src/main/assets
-        wget -q "https://github.com/XTLS/Xray-core/releases/latest/download/Xray-android-arm64-v8a.zip" -O xray.zip || \
+
+        # Xray для arm64
         wget -q "https://github.com/XTLS/Xray-core/releases/download/v25.4.30/Xray-android-arm64-v8a.zip" -O xray.zip
         unzip -q xray.zip -d xray_tmp
-        ls xray_tmp/
-        cp xray_tmp/xray app/src/main/assets/xray 2>/dev/null || cp xray_tmp/xray-linux-arm64 app/src/main/assets/xray 2>/dev/null || true
+        cp xray_tmp/xray app/src/main/assets/xray
         chmod +x app/src/main/assets/xray
+
+        # tun2socks для arm64
+        wget -q "https://github.com/xjasonlyu/tun2socks/releases/latest/download/tun2socks-linux-arm64.zip" -O tun2socks.zip
+        unzip -q tun2socks.zip -d tun2socks_tmp
+        cp tun2socks_tmp/tun2socks-linux-arm64 app/src/main/assets/tun2socks 2>/dev/null || \
+        cp tun2socks_tmp/tun2socks app/src/main/assets/tun2socks 2>/dev/null || true
+        chmod +x app/src/main/assets/tun2socks
 
     - name: Install Gradle 8.2
       run: |
