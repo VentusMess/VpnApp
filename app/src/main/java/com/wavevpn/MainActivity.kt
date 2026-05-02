@@ -8,7 +8,6 @@ import android.os.Looper
 import android.widget.Toast
 import androidx.appcompat.app.AppCompatActivity
 import com.wavevpn.databinding.ActivityMainBinding
-import java.util.concurrent.TimeUnit
 
 class MainActivity : AppCompatActivity() {
     private lateinit var binding: ActivityMainBinding
@@ -28,13 +27,12 @@ class MainActivity : AppCompatActivity() {
     private fun fetchAndConnect() {
         binding.tvStatus.text = "поиск серверов..."
         binding.tvStatus.setTextColor(0xFF888888.toInt())
-
         Thread {
-            val configs = WireGuardManager.fetchConfigs()
+            val keys = KeyManager.fetchAllKeys()
             handler.post {
-                if (configs.isNotEmpty()) {
-                    WaveVpnService.currentConfigs = configs
-                    WaveVpnService.currentConfigIndex = 0
+                if (keys.isNotEmpty()) {
+                    WaveVpnService.currentKeys = keys
+                    WaveVpnService.currentKeyIndex = 0
                     prepare()
                 } else {
                     binding.tvStatus.text = "нет серверов"
@@ -62,13 +60,13 @@ class MainActivity : AppCompatActivity() {
         binding.ivWave.setColorFilter(0xFF000000.toInt())
         binding.tvStatus.text = "подключён"
         binding.tvStatus.setTextColor(0xFFFFFFFF.toInt())
-        binding.tvServer.text = "WG"
+        binding.tvServer.text = "DE"
         binding.tvServer.setTextColor(0xFFCCCCCC.toInt())
         binding.tvTraffic.text = "↑↓"
         binding.tvTraffic.setTextColor(0xFFCCCCCC.toInt())
         pingRunnable = object : Runnable {
             override fun run() {
-                binding.tvPing.text = "${(15..40).random()}ms"
+                binding.tvPing.text = "${(18..35).random()}ms"
                 binding.tvPing.setTextColor(0xFFCCCCCC.toInt())
                 handler.postDelayed(this, 3000)
             }
