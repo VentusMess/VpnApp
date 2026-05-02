@@ -23,7 +23,10 @@ class MainActivity : AppCompatActivity() {
         .readTimeout(15, TimeUnit.SECONDS)
         .build()
 
-    private val KEYS_URL = "https://raw.githubusercontent.com/tiagorrg/vless-checker/main/docs/keys.json"
+    private val KEYS_URLS = listOf(
+        "https://raw.githubusercontent.com/tiagorrg/vless-checker/main/docs/keys.json",
+        "https://raw.githubusercontent.com/kort0881/vpn-vless-configs-russia/main/githubmirror/clean/vless.txt"
+    )
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -39,35 +42,48 @@ class MainActivity : AppCompatActivity() {
         binding.tvStatus.setTextColor(0xFF888888.toInt())
 
         Thread {
-            try {
-                val request = Request.Builder().url(KEYS_URL).build()
-                val body = client.newCall(request).execute().body?.string() ?: ""
-                val key = extractVlessKey(body)
-
-                handler.post {
-                    if (key != null) {
-                        currentKey = key
-                        prepare()
-                    } else {
-                        binding.tvStatus.text = "нет серверов"
-                        Toast.makeText(this, "Серверы недоступны", Toast.LENGTH_SHORT).show()
-                    }
+            var key: String? = null
+            for (url in KEYS_URLS) {
+                try {
+                    val request = Request.Builder().url(url).build()
+                    val body = client.newCall(request).execute().body?.string() ?: ""
+                    key = extractBestVlessKey(body)
+                    if (key != null) break
+                } catch (e: Exception) {
+                    continue
                 }
-            } catch (e: Exception) {
-                handler.post {
-                    binding.tvStatus.text = "ошибка сети"
-                    Toast.makeText(this, "Ошибка подключения", Toast.LENGTH_SHORT).show()
+            }
+
+            handler.post {
+                if (key != null) {
+                    currentKey = key
+                    prepare()
+                } else {
+                    binding.tvStatus.text = "нет серверов"
+                    binding.tvStatus.setTextColor(0xFFFF4444.toInt())
+                    Toast.makeText(this, "Попробуй позже", Toast.LENGTH_SHORT).show()
                 }
             }
         }.start()
     }
 
-    private fun extractVlessKey(json: String): String? {
-        val idx = json.indexOf("vless://")
-        if (idx == -1) return null
-        val sub = json.substring(idx)
-        val end = sub.indexOfFirst { it == '"' || it == '\n' }
-        return if (end != -1) sub.substring(0, end) else sub.split(" ")[0]
+    private fun extractBestVlessKey(text: String): String? {
+        // Собираем все vless:// ключи
+        val keys = mutableListOf<String>()
+        var idx = 0
+        while (true) {
+            val start = text.indexOf("vless://", idx)
+            if (start == -1) break
+            val sub = text.substring(start)
+            val end = sub.indexOfFirst { it == '"' || it == '\n' || it == ' ' }
+            val key = if (end != -1) sub.substring(0, end) else sub
+            if (key.length > 20) keys.add(key.trim())
+            idx = start + 8
+        }
+        // Предпочитаем ключи с Reality (самые надёжные в РФ)
+        return keys.firstOrNull { it.contains("security=reality") }
+            ?: keys.firstOrNull { it.contains("security=tls") }
+            ?: keys.firstOrNull()
     }
 
     private fun prepare() {
