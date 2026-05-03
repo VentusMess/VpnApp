@@ -2,6 +2,7 @@ package com.wavevpn
 
 import android.app.*
 import android.content.Intent
+import android.net.ProxyInfo
 import android.net.VpnService
 import android.os.Build
 import android.os.ParcelFileDescriptor
@@ -39,25 +40,35 @@ class WaveVpnService : VpnService() {
         try {
             if (currentKeys.isEmpty()) return
             val key = currentKeys[currentKeyIndex % currentKeys.size]
+
             copyAsset("xray", "xray")
             val config = generateXrayConfig(key)
             File(filesDir, "config.json").writeText(config)
+
             xrayProcess?.destroy()
-            val xrayFile = File(filesDir, "xray")
             xrayProcess = ProcessBuilder(
-                xrayFile.absolutePath, "run", "-c",
+                File(filesDir, "xray").absolutePath, "run", "-c",
                 File(filesDir, "config.json").absolutePath
             ).directory(filesDir).redirectErrorStream(true).start()
+
             Thread.sleep(2000)
+
             vpnInterface?.close()
-            vpnInterface = Builder()
+            val builder = Builder()
                 .addAddress("10.0.0.2", 24)
                 .addDnsServer("1.1.1.1")
                 .addDnsServer("8.8.8.8")
                 .addRoute("0.0.0.0", 0)
                 .setSession("Wave VPN")
                 .setMtu(1500)
-                .establish()
+
+            // Устанавливаем HTTP прокси через Xray
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                builder.setHttpProxy(ProxyInfo.buildDirectProxy("127.0.0.1", 10809))
+            }
+
+            vpnInterface = builder.establish()
+
         } catch (e: Exception) {
             e.printStackTrace()
             stopEverything()
@@ -111,10 +122,16 @@ class WaveVpnService : VpnService() {
             """
             {
                 "log": {"loglevel": "warning"},
-                "inbounds": [{
-                    "tag": "socks", "port": 10808, "listen": "127.0.0.1",
-                    "protocol": "socks", "settings": {"udp": true}
-                }],
+                "inbounds": [
+                    {
+                        "tag": "socks", "port": 10808, "listen": "127.0.0.1",
+                        "protocol": "socks", "settings": {"udp": true}
+                    },
+                    {
+                        "tag": "http", "port": 10809, "listen": "127.0.0.1",
+                        "protocol": "http"
+                    }
+                ],
                 "outbounds": [
                     {
                         "tag": "proxy", "protocol": "vless",
@@ -133,7 +150,7 @@ class WaveVpnService : VpnService() {
             }
             """.trimIndent()
         } catch (e: Exception) {
-            """{"log":{"loglevel":"warning"},"inbounds":[{"port":10808,"listen":"127.0.0.1","protocol":"socks","settings":{"udp":true}}],"outbounds":[{"protocol":"freedom"}]}"""
+            """{"log":{"loglevel":"warning"},"inbounds":[{"port":10808,"listen":"127.0.0.1","protocol":"socks","settings":{"udp":true}},{"port":10809,"listen":"127.0.0.1","protocol":"http"}],"outbounds":[{"protocol":"freedom"}]}"""
         }
     }
 
