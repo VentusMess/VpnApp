@@ -5,7 +5,6 @@ import android.net.VpnService
 import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
-import android.widget.Toast
 import androidx.appcompat.app.AppCompatActivity
 import com.wavevpn.databinding.ActivityMainBinding
 
@@ -15,57 +14,46 @@ class MainActivity : AppCompatActivity() {
     private val handler = Handler(Looper.getMainLooper())
     private var pingRunnable: Runnable? = null
 
+    // Рабочий ключ
+    private val VLESS_KEY = "vless://79af7cf2-46bf-11f1-8e9b-076ace19a167@gr9.vpnjantit.com:443?type=tcp&security=reality&sni=cloudflare.com&fp=chrome&pbk=7MhMF1dG6EK5T38Y5r0tOOMFb_pEZOUfqJmSZLaKp1Y&sid=038030c502e954e6&flow=xtls-rprx-vision#loren-vpnjantit.com"
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         binding = ActivityMainBinding.inflate(layoutInflater)
         setContentView(binding.root)
         binding.btnConnect.setOnClickListener {
-            if (isConnected) disconnect() else fetchAndConnect()
+            if (isConnected) disconnect() else connect()
         }
     }
 
-    private fun fetchAndConnect() {
+    private fun connect() {
         binding.tvStatus.text = "подключение..."
         binding.tvStatus.setTextColor(0xFF888888.toInt())
-        Thread {
-            val config = KeyManager.fetchWarpConfig()
-            handler.post {
-                if (config != null) {
-                    WaveVpnService.warpConfig = config
-                    prepare()
-                } else {
-                    binding.tvStatus.text = "ошибка"
-                    binding.tvStatus.setTextColor(0xFFFF4444.toInt())
-                    Toast.makeText(this, "Попробуй позже", Toast.LENGTH_SHORT).show()
-                }
-            }
-        }.start()
-    }
-
-    private fun prepare() {
+        WaveVpnService.currentKeys = listOf(VLESS_KEY)
+        WaveVpnService.currentKeyIndex = 0
         val intent = VpnService.prepare(this)
-        if (intent != null) startActivityForResult(intent, 1) else connect()
+        if (intent != null) startActivityForResult(intent, 1) else startVpn()
     }
 
     override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
         super.onActivityResult(requestCode, resultCode, data)
-        if (requestCode == 1 && resultCode == RESULT_OK) connect()
+        if (requestCode == 1 && resultCode == RESULT_OK) startVpn()
     }
 
-    private fun connect() {
+    private fun startVpn() {
         startService(Intent(this, WaveVpnService::class.java).apply { action = "CONNECT" })
         isConnected = true
         binding.btnConnect.setBackgroundResource(R.drawable.btn_on)
         binding.ivWave.setColorFilter(0xFF000000.toInt())
         binding.tvStatus.text = "подключён"
         binding.tvStatus.setTextColor(0xFFFFFFFF.toInt())
-        binding.tvServer.text = "CF"
+        binding.tvServer.text = "DE"
         binding.tvServer.setTextColor(0xFFCCCCCC.toInt())
         binding.tvTraffic.text = "↑↓"
         binding.tvTraffic.setTextColor(0xFFCCCCCC.toInt())
         pingRunnable = object : Runnable {
             override fun run() {
-                binding.tvPing.text = "${(10..30).random()}ms"
+                binding.tvPing.text = "${(15..35).random()}ms"
                 binding.tvPing.setTextColor(0xFFCCCCCC.toInt())
                 handler.postDelayed(this, 3000)
             }
