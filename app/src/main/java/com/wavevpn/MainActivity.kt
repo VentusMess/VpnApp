@@ -14,7 +14,6 @@ class MainActivity : AppCompatActivity() {
     private val handler = Handler(Looper.getMainLooper())
     private var pingRunnable: Runnable? = null
 
-    // Рабочий ключ
     private val VLESS_KEY = "vless://79af7cf2-46bf-11f1-8e9b-076ace19a167@gr9.vpnjantit.com:443?type=tcp&security=reality&sni=cloudflare.com&fp=chrome&pbk=7MhMF1dG6EK5T38Y5r0tOOMFb_pEZOUfqJmSZLaKp1Y&sid=038030c502e954e6&flow=xtls-rprx-vision#loren-vpnjantit.com"
 
     override fun onCreate(savedInstanceState: Bundle?) {
