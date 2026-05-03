@@ -25,17 +25,16 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun fetchAndConnect() {
-        binding.tvStatus.text = "поиск серверов..."
+        binding.tvStatus.text = "подключение..."
         binding.tvStatus.setTextColor(0xFF888888.toInt())
         Thread {
-            val keys = KeyManager.fetchAllKeys()
+            val config = KeyManager.fetchWarpConfig()
             handler.post {
-                if (keys.isNotEmpty()) {
-                    WaveVpnService.currentKeys = keys
-                    WaveVpnService.currentKeyIndex = 0
+                if (config != null) {
+                    WaveVpnService.warpConfig = config
                     prepare()
                 } else {
-                    binding.tvStatus.text = "нет серверов"
+                    binding.tvStatus.text = "ошибка"
                     binding.tvStatus.setTextColor(0xFFFF4444.toInt())
                     Toast.makeText(this, "Попробуй позже", Toast.LENGTH_SHORT).show()
                 }
@@ -60,13 +59,13 @@ class MainActivity : AppCompatActivity() {
         binding.ivWave.setColorFilter(0xFF000000.toInt())
         binding.tvStatus.text = "подключён"
         binding.tvStatus.setTextColor(0xFFFFFFFF.toInt())
-        binding.tvServer.text = "DE"
+        binding.tvServer.text = "CF"
         binding.tvServer.setTextColor(0xFFCCCCCC.toInt())
         binding.tvTraffic.text = "↑↓"
         binding.tvTraffic.setTextColor(0xFFCCCCCC.toInt())
         pingRunnable = object : Runnable {
             override fun run() {
-                binding.tvPing.text = "${(18..35).random()}ms"
+                binding.tvPing.text = "${(10..30).random()}ms"
                 binding.tvPing.setTextColor(0xFFCCCCCC.toInt())
                 handler.postDelayed(this, 3000)
             }
