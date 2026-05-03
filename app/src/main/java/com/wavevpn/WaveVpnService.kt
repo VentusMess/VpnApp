@@ -8,13 +8,15 @@ import android.os.ParcelFileDescriptor
 import androidx.core.app.NotificationCompat
 import java.io.File
 import java.io.FileOutputStream
+import java.net.URLDecoder
 
 class WaveVpnService : VpnService() {
     private var vpnInterface: ParcelFileDescriptor? = null
-    private var wgProcess: Process? = null
+    private var xrayProcess: Process? = null
 
     companion object {
-        var warpConfig: KeyManager.WarpConfig? = null
+        var currentKeys: List<String> = emptyList()
+        var currentKeyIndex = 0
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
@@ -26,59 +28,112 @@ class WaveVpnService : VpnService() {
                 } else {
                     startForeground(1, notification)
                 }
-                Thread { startWarp() }.start()
+                Thread { startWithKey() }.start()
             }
             "DISCONNECT" -> stopEverything()
         }
         return START_STICKY
     }
 
-    private fun startWarp() {
+    private fun startWithKey() {
         try {
-            val config = warpConfig ?: return
-
-            // Копируем wireguard-go бинарник
-            copyAsset("wireguard", "wireguard")
-
-            // Генерируем WireGuard конфиг для WARP
-            val wgConfig = """
-[Interface]
-PrivateKey = ${config.privateKey}
-Address = ${config.address4}/32, ${config.address6}/128
-DNS = 1.1.1.1, 1.0.0.1
-
-[Peer]
-PublicKey = ${config.publicKey}
-AllowedIPs = 0.0.0.0/0, ::/0
-Endpoint = ${config.endpoint}
-PersistentKeepalive = 25
-            """.trimIndent()
-
-            File(filesDir, "warp.conf").writeText(wgConfig)
-
-            // Поднимаем VPN туннель
+            if (currentKeys.isEmpty()) return
+            val key = currentKeys[currentKeyIndex % currentKeys.size]
+            copyAsset("xray", "xray")
+            val config = generateXrayConfig(key)
+            File(filesDir, "config.json").writeText(config)
+            xrayProcess?.destroy()
+            val xrayFile = File(filesDir, "xray")
+            xrayProcess = ProcessBuilder(
+                xrayFile.absolutePath, "run", "-c",
+                File(filesDir, "config.json").absolutePath
+            ).directory(filesDir).redirectErrorStream(true).start()
+            Thread.sleep(2000)
+            vpnInterface?.close()
             vpnInterface = Builder()
-                .addAddress(config.address4, 32)
+                .addAddress("10.0.0.2", 24)
                 .addDnsServer("1.1.1.1")
-                .addDnsServer("1.0.0.1")
+                .addDnsServer("8.8.8.8")
                 .addRoute("0.0.0.0", 0)
                 .setSession("Wave VPN")
-                .setMtu(1280)
-                .establish() ?: return
-
-            // Запускаем wireguard-go
-            val wgFile = File(filesDir, "wireguard")
-            if (wgFile.exists()) {
-                wgProcess = ProcessBuilder(
-                    wgFile.absolutePath,
-                    File(filesDir, "warp.conf").absolutePath,
-                    vpnInterface!!.fd.toString()
-                ).directory(filesDir).redirectErrorStream(true).start()
-            }
-
+                .setMtu(1500)
+                .establish()
         } catch (e: Exception) {
             e.printStackTrace()
             stopEverything()
+        }
+    }
+
+    private fun generateXrayConfig(vlessUrl: String): String {
+        return try {
+            val withoutScheme = vlessUrl.removePrefix("vless://")
+            val atIdx = withoutScheme.indexOf('@')
+            val uuid = withoutScheme.substring(0, atIdx)
+            val rest = withoutScheme.substring(atIdx + 1)
+            val questionIdx = rest.indexOf('?')
+            val hostPort = if (questionIdx != -1) rest.substring(0, questionIdx) else rest.split("#")[0]
+            val colonIdx = hostPort.lastIndexOf(':')
+            val host = hostPort.substring(0, colonIdx)
+            val port = hostPort.substring(colonIdx + 1).split("#")[0].toIntOrNull() ?: 443
+            val params = mutableMapOf<String, String>()
+            if (questionIdx != -1) {
+                rest.substring(questionIdx + 1).split("#")[0].split("&").forEach {
+                    val kv = it.split("=")
+                    if (kv.size == 2) params[kv[0]] = URLDecoder.decode(kv[1], "UTF-8")
+                }
+            }
+            val security = params["security"] ?: "none"
+            val sni = params["sni"] ?: host
+            val fp = params["fp"] ?: "chrome"
+            val pbk = params["pbk"] ?: ""
+            val sid = params["sid"] ?: ""
+            val type = params["type"] ?: "tcp"
+            val flow = params["flow"] ?: ""
+            val flowSetting = if (flow.isNotEmpty()) "\"flow\": \"$flow\"," else ""
+            val streamSettings = when (security) {
+                "reality" -> """
+                    "streamSettings": {
+                        "network": "$type", "security": "reality",
+                        "realitySettings": {
+                            "serverName": "$sni", "fingerprint": "$fp",
+                            "publicKey": "$pbk", "shortId": "$sid"
+                        }
+                    }
+                """.trimIndent()
+                "tls" -> """
+                    "streamSettings": {
+                        "network": "$type", "security": "tls",
+                        "tlsSettings": {"serverName": "$sni", "fingerprint": "$fp"}
+                    }
+                """.trimIndent()
+                else -> """"streamSettings": {"network": "$type"}"""
+            }
+            """
+            {
+                "log": {"loglevel": "warning"},
+                "inbounds": [{
+                    "tag": "socks", "port": 10808, "listen": "127.0.0.1",
+                    "protocol": "socks", "settings": {"udp": true}
+                }],
+                "outbounds": [
+                    {
+                        "tag": "proxy", "protocol": "vless",
+                        "settings": {
+                            "vnext": [{"address": "$host", "port": $port,
+                                "users": [{"id": "$uuid", $flowSetting "encryption": "none"}]
+                            }]
+                        },
+                        $streamSettings
+                    },
+                    {"tag": "direct", "protocol": "freedom"}
+                ],
+                "routing": {
+                    "rules": [{"type": "field", "outboundTag": "direct", "ip": ["geoip:private"]}]
+                }
+            }
+            """.trimIndent()
+        } catch (e: Exception) {
+            """{"log":{"loglevel":"warning"},"inbounds":[{"port":10808,"listen":"127.0.0.1","protocol":"socks","settings":{"udp":true}}],"outbounds":[{"protocol":"freedom"}]}"""
         }
     }
 
@@ -93,8 +148,8 @@ PersistentKeepalive = 25
     }
 
     private fun stopEverything() {
-        wgProcess?.destroy()
-        wgProcess = null
+        xrayProcess?.destroy()
+        xrayProcess = null
         vpnInterface?.close()
         vpnInterface = null
         stopForeground(true)
