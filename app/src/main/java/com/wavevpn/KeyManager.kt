@@ -23,45 +23,62 @@ object KeyManager {
 
     fun fetchWarpConfig(): WarpConfig? {
         return try {
-            // Регистрируем новый аккаунт в Cloudflare WARP API
             val json = JSONObject().apply {
                 put("key", generatePublicKey())
                 put("install_id", generateId())
                 put("fcm_token", "")
-                put("tos", "2023-11-01T00:00:00.000Z")
+                put("tos", "2024-01-01T00:00:00.000Z")
                 put("model", "Android")
                 put("serial_number", generateId())
                 put("locale", "en_US")
             }
 
             val body = json.toString().toRequestBody("application/json".toMediaType())
-            val request = Request.Builder()
-                .url("https://api.cloudflareclient.com/v0a2158/reg")
-                .post(body)
-                .addHeader("Content-Type", "application/json")
-                .addHeader("User-Agent", "okhttp/3.12.1")
-                .build()
 
-            val response = client.newCall(request).execute()
-            val responseBody = response.body?.string() ?: return null
-            val responseJson = JSONObject(responseBody)
+            // Пробуем разные версии API
+            val urls = listOf(
+                "https://api.cloudflareclient.com/v0a2158/reg",
+                "https://api.cloudflareclient.com/v0a1922/reg",
+                "https://api.cloudflareclient.com/v0a977/reg"
+            )
 
-            val config = responseJson.getJSONObject("config")
-            val peers = config.getJSONArray("peers")
-            val peer = peers.getJSONObject(0)
-            val peerPublicKey = peer.getString("public_key")
-            val endpoint = peer.getJSONObject("endpoint").getString("host")
+            for (url in urls) {
+                try {
+                    val request = Request.Builder()
+                        .url(url)
+                        .post(body)
+                        .addHeader("Content-Type", "application/json")
+                        .addHeader("User-Agent", "okhttp/3.12.1")
+                        .build()
 
-            val interface_ = config.getJSONObject("interface")
-            val addresses = interface_.getJSONObject("addresses")
-            val address4 = addresses.getString("v4")
-            val address6 = addresses.getString("v6")
+                    val response = client.newCall(request).execute()
+                    val responseBody = response.body?.string() ?: continue
 
-            val privateKey = responseJson.getString("private_key")
+                    android.util.Log.d("WaveVPN", "Response: $responseBody")
 
-            WarpConfig(privateKey, peerPublicKey, address4, address6, endpoint)
+                    if (!response.isSuccessful) continue
+
+                    val responseJson = JSONObject(responseBody)
+                    val config = responseJson.getJSONObject("config")
+                    val peers = config.getJSONArray("peers")
+                    val peer = peers.getJSONObject(0)
+                    val peerPublicKey = peer.getString("public_key")
+                    val endpoint = peer.getJSONObject("endpoint").getString("host")
+                    val interface_ = config.getJSONObject("interface")
+                    val addresses = interface_.getJSONObject("addresses")
+                    val address4 = addresses.getString("v4")
+                    val address6 = addresses.getString("v6")
+                    val privateKey = responseJson.getString("private_key")
+
+                    return WarpConfig(privateKey, peerPublicKey, address4, address6, endpoint)
+                } catch (e: Exception) {
+                    android.util.Log.e("WaveVPN", "URL $url failed: ${e.message}")
+                    continue
+                }
+            }
+            null
         } catch (e: Exception) {
-            e.printStackTrace()
+            android.util.Log.e("WaveVPN", "Error: ${e.message}")
             null
         }
     }
